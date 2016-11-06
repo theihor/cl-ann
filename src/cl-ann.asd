@@ -2,7 +2,7 @@
   :class :package-inferred-system
   :defsystem-depends-on (:asdf-package-system)
   :pathname #p"./"
-  :depends-on (:cl-ann/random)
+  :depends-on (:cl-ann/random :cl-ann/transfer-functions)
   :in-order-to ((test-op ;; (load-op :src/test/field)
                          ))
   :perform (test-op (o c)
