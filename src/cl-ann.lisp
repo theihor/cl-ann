@@ -17,6 +17,11 @@
     :accessor n-weights
     :type simple-vector)))
 
+(defmethod print-object ((n neuron) s)
+  (with-slots (bias transfer-function input-weights) n 
+    (format s "#<NEURON W = ~A B = ~A F = ~A>"
+            input-weights bias transfer-function)))
+
 (defgeneric activate (n input))
 
 (defmethod activate ((n neuron) input)
@@ -24,7 +29,7 @@
     (funcall f (+ b (loop
                        for x across input
                        for w across ws
-                       sum (* w b))))))
+                       sum (* w x))))))
 
 (defclass layer ()
   ((neurons :initarg :neurons 
@@ -32,6 +37,10 @@
             :type list)
    (size :initarg :size
          :accessor l-size)))
+
+(defmethod print-object ((l layer) s)
+  (with-slots (size neurons) l
+    (format s "#<LAYER ~A ~A>" size neurons)))
 
 (defgeneric propagate-forward (l input))
 
@@ -53,6 +62,10 @@
    (layers :initarg :layers
            :accessor network-layers)))
 
+(defmethod print-object ((n network) s)
+  (with-slots (layers) n 
+    (format s "#<NETWORK ~{~A~^~%          ~}>" layers)))
+
 (defmethod propagate-forward ((net network) input)
   (loop
      for l in (network-layers net)
@@ -60,7 +73,7 @@
      finally (return output)))
 
 (defun network->dot (net s)
-  (with-slots (forward-links) net
+  (with-slots (forward-links layers) net
     (format s "digraph g {~%")
     (let ((i 0)
           (n->i (make-hash-table :test #'eq)))
@@ -68,15 +81,19 @@
                  (aif (gethash n n->i)
                       it
                       (setf (gethash n n->i) (incf i)))))
-        (loop for (l1 l2 . rest) on (network-layers net) by #'cdr
-           when l2 do
-             (loop
-                for n1 in (l-neurons l1)
-                for i from 0
-                do (loop for n2 in (l-neurons l2)
-                      unless (= 0 (aref (n-weights n2) i)) 
-                      do (format s "    ~A -> ~A [label=\"~1,2F\"];~%"
-                                 (%i n1) (%i n2) (aref (n-weights n2) i)))))))
+        (let ((input-layer (loop repeat (length (n-weights (car (l-neurons (car layers)))))
+                              collect (gensym)))) 
+          (loop for (l1 l2 . rest) on (cons input-layer layers) by #'cdr
+             when l2 do
+               (loop
+                  for n1 in (if (typep l1 'layer)
+                                (l-neurons l1)
+                                l1)
+                  for i from 0
+                  do (loop for n2 in (l-neurons l2)
+                        unless (= 0 (aref (n-weights n2) i)) 
+                        do (format s "    ~A -> ~A [label=\"~1,2F\"];~%"
+                                   (%i n1) (%i n2) (aref (n-weights n2) i))))))))
     (format s "}~%")))
 
 (defun make-random-net (in-n out-n other-n &key (transfer-f #'log-sigmoid) hidden-layers-n) 
@@ -96,11 +113,11 @@
                      (= 0 n))
                  acc
                  (%take (1- n) (cdr lst) (cons (car lst) acc)))))
-    (let ((in-ns (loop repeat in-n collect (%neuron)))
+    (let ( ;; (in-ns (loop repeat in-n collect (%neuron)))
           (out-ns (loop repeat out-n collect (%neuron)))
           (other-ns (loop repeat other-n collect (%neuron)))
           (hidden-layers-n (or hidden-layers-n
-                               (random-int :from 1 :to (round (/ other-n 2)))))
+                               (random-int :from 1 :to (1+ (round (/ other-n 2))))))
           (net (make-instance 'network
                               :input-n in-n
                               :output-n out-n)))
@@ -117,19 +134,22 @@
                                               :neurons neurons 
                                               :size s)))))
         (setf (network-layers net)
-              (append (list (make-instance 'layer
-                                           :neurons in-ns
-                                           :size in-n))
-                      hidden-layers
-                      (list (make-instance 'layer
-                                           :neurons out-ns
-                                           :size out-n)))))
+              (append ;; (list (make-instance 'layer
+               ;;                      :neurons in-ns
+               ;;                      :size in-n))
+               hidden-layers
+               (list (make-instance 'layer
+                                    :neurons out-ns
+                                    :size out-n)))))
+      (loop 
+         for n in (l-neurons (car (network-layers net)))
+         do (setf (n-weights n) (%weights in-n)))
       (loop
          for (l1 l2 . rest) on (network-layers net) by #'cdr
-         for s = in-n then (l-size l1)
-         when l2 do
-           (loop 
-              for n in (l-neurons l2) 
-              do (setf (n-weights n) (%weights s))))
+         while l2
+         for s = (l-size l1) then (l-size l1)
+         do (loop 
+               for n in (l-neurons l2) 
+               do (setf (n-weights n) (%weights s))))
       net)))
 
