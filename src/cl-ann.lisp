@@ -1,5 +1,5 @@
 (defpackage :cl-ann
-  (:use :common-lisp :anaphora :cl-ann/random :cl-ann/transfer-functions))
+  (:use :common-lisp :anaphora :cl-ann/random :cl-ann/transfer-functions :cl-ann/vector))
 
 (in-package :cl-ann)
 
@@ -71,6 +71,61 @@
      for l in (network-layers net)
      for output = input then (propagate-forward l output)
      finally (return output)))
+
+(defgeneric propagate-backward (n input alpha sensitiviy))
+
+(defmethod propagate-backward ((n neuron) input alpha sensitivity)
+  "w(k + 1) = w(k) - alpha * s * a
+     where a - input
+           s - sensitiviy
+           alpha - learning rate"
+  (with-accessors ((b n-bias) (f n-func) (ws n-weights)) n
+    (setf ws (element-wise
+              (lambda (w a)
+                (- w (* alpha sensitivity a)))
+              ws input))
+    (setf b (- b (* alpha sensitivity)))))
+
+(defgeneric process-backpropagation (net alpha inputs outputs))
+
+(defmethod process-backpropagation ((net network) alpha inputs outputs)
+  "Backpropagation algorithm
+     see  «Neural Network Design 2nd Edtion» by Martin T. Hagan, p. 362-373"
+  (loop
+     for input in inputs
+     for ref-output in outputs
+     do (let* ((layer-inputs (make-hash-table :test #'eq))
+               (output (loop
+                          for l in (network-layers net)
+                          for inp = input then (propagate-forward l inp) 
+                          do (setf (gethash l layer-inputs) inp)
+                          finally (return inp)))) 
+          (loop
+             for l in (reverse (network-layers net))
+             for inp = (gethash l layer-inputs)
+             for out = output then inp
+             ;; s(output layer) = -2 * f'(y) * (t - a),
+             ;;   where f' - transfer function derivative
+             ;;         y  - output
+             ;;         t  - expected output
+             ;;         a  - input of the neuron
+             for s = (element-wise (lambda (x1 x2) (* -2.0 x1 x2))
+                                   (element-wise (derivative (n-func n)) output)
+                                   (element-wise #'- ref-output inp))
+             ;; s(k) = f'(y) * w * s(k + 1)
+             ;;   where y - layer output vector
+             ;;         w - layer weights matrix
+             ;;         s - sensitivity vector of next layer
+             ;; here we compute these neuron-wise 
+             then (map 'simple-vector
+                       (lambda (y n)
+                         (* (derivative (n-func n))
+                            (vector-mult (n-weights n) s)))
+                       out
+                       (l-neurons l)) 
+             do (loop for n in (l-neurons l)
+                      for sensitivity across s
+                   do (propagate-backward n inp alpha sensitivity))))))
 
 (defun network->dot (net s)
   (with-slots (forward-links layers) net

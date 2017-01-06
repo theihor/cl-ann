@@ -25,6 +25,7 @@
 ;; (ql:quickload 'cl-cairo2)
 ;; (ql:quickload 'cl-containers)
 ;;(ql:quickload 'trivial-timeout)
+(ql:quickload 'alexandria)
 
 (in-package :cl-user)
 (asdf:initialize-source-registry '(:source-registry
